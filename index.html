@@ -103,6 +103,10 @@ summary{font-weight:700;cursor:pointer}
 .sale-row:last-child{border-bottom:0}.sale-row .sale-top{display:flex;justify-content:space-between;gap:8px;font-weight:700}
 .sale-row .sale-sub{color:#777}
 .no-sales{padding:16px 0;color:#888;text-align:center;font-size:13px}
+.color-grid{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:8px}
+.color-btn{background:#f1f1f1;color:#222;border:1px solid #ddd;border-radius:999px;padding:9px 13px}
+.color-btn.selected{background:#111;color:#fff;border-color:#111}
+.custom-color{display:grid;grid-template-columns:1fr auto;gap:7px}.custom-color button{background:#eee;color:#111}
 </style>
 </head>
 <body>
@@ -180,9 +184,10 @@ summary{font-weight:700;cursor:pointer}
         <div class="size-grid" id="sizeGrid"></div>
         <div id="sizeQtys"></div>
       </div>
-      <div class="field">
-        <label>顏色</label>
-        <input id="color" class="form" placeholder="黑 / 白">
+      <div class="field full">
+        <label>顏色（可複選）</label>
+        <div id="colorGrid" class="color-grid"></div>
+        <div class="custom-color"><input id="customColor" class="form" placeholder="其他顏色"><button type="button" onclick="addColor()">＋加入</button></div>
       </div>
       <div class="field">
         <label>進貨成本</label>
@@ -210,6 +215,8 @@ let products = JSON.parse(localStorage.getItem(KEY) || '[]');
 let sales = JSON.parse(localStorage.getItem(SALES_KEY) || '[]');
 let editingId = null;
 let selectedSizes = {};
+let selectedColors = [];
+const COLOR_OPTIONS=['黑','白','灰','藍','紅','綠','米','卡其'];
 let currentProductType = 'clothes';
 const SIZE_OPTIONS = {
   clothes:['S','M','L','XL','2XL'],
@@ -237,7 +244,7 @@ function render(){
   if(brands.includes(old)) $('brandFilter').value = old;
 
   const filtered = products.filter(p=>{
-    const text = [p.sku,p.brand,p.name,Object.keys(p.sizes||{}).join(' '),p.color].join(' ').toLowerCase();
+    const text = [p.sku,p.brand,p.name,Object.keys(p.sizes||{}).join(' '),(p.colors||[p.color||'']).join(' ')].join(' ').toLowerCase();
     return (!q || text.includes(q)) && (!bf || p.brand === bf);
   });
 
@@ -259,7 +266,7 @@ function render(){
           <div class="name">${esc(p.name)}</div>
           ${p.sku ? `<div class="meta">序號：${esc(p.sku)}</div>` : ''}
           <div class="meta">
-            ${Object.keys(p.sizes||{}).length ? `尺寸：${Object.keys(p.sizes).map(esc).join(' / ')}　` : ''}${p.color ? `顏色：${esc(p.color)}` : ''}<br>
+            ${Object.keys(p.sizes||{}).length ? `尺寸：${Object.keys(p.sizes).map(esc).join(' / ')}　` : ''}${(p.colors||[]).length ? `顏色：${p.colors.map(esc).join(' / ')}` : (p.color ? `顏色：${esc(p.color)}` : '')}<br>
             <div class="size-stock">${Object.entries(p.sizes||{}).map(([s,q])=>`<span class="size-chip">${esc(s)}：${Number(q)}件</span>`).join('')}</div>
             成本 ${money(p.cost)} ・ 售價 ${money(p.price)}
           </div>
@@ -287,6 +294,19 @@ function changeProductType(){
     selectedSizes = {};
   }
   renderSizeEditor();
+}
+function renderColors(){
+  const all=[...new Set([...COLOR_OPTIONS,...selectedColors])];
+  $('colorGrid').innerHTML=all.map(c=>`<button type="button" class="color-btn ${selectedColors.includes(c)?'selected':''}" onclick="toggleColor('${c}')">${esc(c)}</button>`).join('');
+}
+function toggleColor(c){
+  selectedColors=selectedColors.includes(c)?selectedColors.filter(x=>x!==c):[...selectedColors,c];
+  renderColors();
+}
+function addColor(){
+  const c=$('customColor').value.trim(); if(!c)return;
+  if(!selectedColors.includes(c))selectedColors.push(c);
+  $('customColor').value=''; renderColors();
 }
 function toggleSize(size){
   if(selectedSizes[size] !== undefined) delete selectedSizes[size];
@@ -381,7 +401,8 @@ function openModal(id=null){
   $('productType').value = currentProductType;
   selectedSizes = p?.sizes ? {...p.sizes} : (p?.size ? {[p.size]:Number(p.qty||0)} : {});
   renderSizeEditor();
-  $('color').value = p?.color || '';
+  selectedColors = p?.colors ? [...p.colors] : (p?.color ? [p.color] : []);
+  renderColors();
   $('cost').value = p?.cost ?? '';
   $('price').value = p?.price ?? '';
   $('deleteBtn').style.display = p ? 'block' : 'none';
@@ -398,13 +419,14 @@ function saveProduct(){
   const name = $('productName').value.trim();
   if(!name) return alert('請輸入商品名稱');
   if(!Object.keys(selectedSizes).length) return alert('請至少選擇一個尺寸');
+  if(!selectedColors.length) return alert('請至少選擇一個顏色');
   const data = {
     productType:currentProductType,
     sku:$('sku').value.trim(),
     brand:$('brand').value.trim(),
     name,
     sizes:{...selectedSizes},
-    color:$('color').value.trim(),
+    colors:[...selectedColors],
     cost:Math.max(0,Number($('cost').value||0)),
     price:Math.max(0,Number($('price').value||0)),
     qty:Object.values(selectedSizes).reduce((a,n)=>a+Number(n||0),0)
