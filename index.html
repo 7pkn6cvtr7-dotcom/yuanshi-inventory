@@ -73,6 +73,7 @@ input.form,select.form{
 .delete{background:#fff0f0;color:var(--danger);width:100%;margin-top:9px}
 .note{font-size:12px;color:#888;margin:10px 2px 0}
 @media(max-width:520px){
+  .size-grid{grid-template-columns:repeat(4,1fr)}
   .stats{grid-template-columns:1fr 1fr}
   .stats .stat:last-child{grid-column:1/-1}
   .tools{flex-direction:column}
@@ -129,14 +130,15 @@ input.form,select.form{
         <input id="productName" class="form" placeholder="例如 黑色短T">
       </div>
       <div class="field full">
-        <label>尺寸與各尺寸庫存（可複選）</label>
-        <div class="size-grid" id="sizeGrid">
-          <button type="button" class="size-btn" data-size="S" onclick="toggleSize('S')">S</button>
-          <button type="button" class="size-btn" data-size="M" onclick="toggleSize('M')">M</button>
-          <button type="button" class="size-btn" data-size="L" onclick="toggleSize('L')">L</button>
-          <button type="button" class="size-btn" data-size="XL" onclick="toggleSize('XL')">XL</button>
-          <button type="button" class="size-btn" data-size="2XL" onclick="toggleSize('2XL')">2XL</button>
-        </div>
+        <label>商品類型</label>
+        <select id="productType" class="form" onchange="changeProductType()">
+          <option value="clothes">衣服</option>
+          <option value="shoes">鞋子</option>
+        </select>
+      </div>
+      <div class="field full">
+        <label id="sizeLabel">衣服尺寸與各尺寸庫存（可複選）</label>
+        <div class="size-grid" id="sizeGrid"></div>
         <div id="sizeQtys"></div>
       </div>
       <div class="field">
@@ -167,6 +169,11 @@ const KEY = 'yuanshi_inventory_v1';
 let products = JSON.parse(localStorage.getItem(KEY) || '[]');
 let editingId = null;
 let selectedSizes = {};
+let currentProductType = 'clothes';
+const SIZE_OPTIONS = {
+  clothes:['S','M','L','XL','2XL'],
+  shoes:['23','23.5','24','24.5','25','25.5','26','26.5','27','27.5','28','28.5','29']
+};
 
 const $ = id => document.getElementById(id);
 const money = n => '$' + Number(n || 0).toLocaleString('zh-TW');
@@ -230,15 +237,23 @@ function render(){
 }
 
 
+function changeProductType(){
+  const next = $('productType').value;
+  if(next !== currentProductType){
+    currentProductType = next;
+    selectedSizes = {};
+  }
+  renderSizeEditor();
+}
 function toggleSize(size){
   if(selectedSizes[size] !== undefined) delete selectedSizes[size];
   else selectedSizes[size] = 0;
   renderSizeEditor();
 }
 function renderSizeEditor(){
-  document.querySelectorAll('.size-btn').forEach(btn=>{
-    btn.classList.toggle('selected', selectedSizes[btn.dataset.size] !== undefined);
-  });
+  const opts = SIZE_OPTIONS[currentProductType];
+  $('sizeLabel').textContent = (currentProductType === 'shoes' ? '鞋子尺寸' : '衣服尺寸') + '與各尺寸庫存（可複選）';
+  $('sizeGrid').innerHTML = opts.map(s=>`<button type="button" class="size-btn ${selectedSizes[s] !== undefined ? 'selected':''}" data-size="${s}" onclick="toggleSize('${s}')">${s}</button>`).join('');
   $('sizeQtys').innerHTML = Object.keys(selectedSizes).map(s=>`
     <div class="size-row"><b>${s}</b>
       <input type="number" min="0" inputmode="numeric" value="${Number(selectedSizes[s]||0)}"
@@ -277,6 +292,8 @@ function openModal(id=null){
   $('modalTitle').textContent = p ? '編輯商品' : '新增商品';
   $('brand').value = p?.brand || '';
   $('productName').value = p?.name || '';
+  currentProductType = p?.productType || ((p?.sizes && Object.keys(p.sizes).some(s=>SIZE_OPTIONS.shoes.includes(s))) ? 'shoes' : 'clothes');
+  $('productType').value = currentProductType;
   selectedSizes = p?.sizes ? {...p.sizes} : (p?.size ? {[p.size]:Number(p.qty||0)} : {});
   renderSizeEditor();
   $('color').value = p?.color || '';
@@ -297,6 +314,7 @@ function saveProduct(){
   if(!name) return alert('請輸入商品名稱');
   if(!Object.keys(selectedSizes).length) return alert('請至少選擇一個尺寸');
   const data = {
+    productType:currentProductType,
     brand:$('brand').value.trim(),
     name,
     sizes:{...selectedSizes},
