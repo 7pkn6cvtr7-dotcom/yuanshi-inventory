@@ -88,6 +88,21 @@ input.form,select.form{
 .size-row input{width:100%;border:1px solid #ddd;border-radius:10px;padding:10px;font-size:16px}
 .size-stock{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 .size-chip{background:#f2f2f2;border-radius:8px;padding:5px 8px;font-size:12px}
+
+.monthly{background:#fff;border-radius:17px;padding:16px;margin-bottom:14px;box-shadow:0 2px 12px #00000008}
+.monthly-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.monthly-head small{color:#777}.monthly-head h2{margin:2px 0 0;font-size:19px}
+.monthly-head input{border:1px solid #ddd;border-radius:10px;padding:8px;background:#fff;font-size:14px}
+.month-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.month-grid div{background:#f6f6f6;border-radius:12px;padding:11px}
+.month-grid small{display:block;color:#777;font-size:12px;margin-bottom:4px}
+.month-grid strong{font-size:17px}
+details{margin-top:12px;border-top:1px solid #eee;padding-top:11px}
+summary{font-weight:700;cursor:pointer}
+.sale-row{padding:10px 2px;border-bottom:1px solid #eee;font-size:13px;line-height:1.55}
+.sale-row:last-child{border-bottom:0}.sale-row .sale-top{display:flex;justify-content:space-between;gap:8px;font-weight:700}
+.sale-row .sale-sub{color:#777}
+.no-sales{padding:16px 0;color:#888;text-align:center;font-size:13px}
 </style>
 </head>
 <body>
@@ -103,6 +118,26 @@ input.form,select.form{
     <div class="stat"><small>庫存總件數</small><strong id="totalQty">0</strong></div>
     <div class="stat"><small>庫存總成本</small><strong id="totalCost">$0</strong></div>
     <div class="stat"><small>庫存售價總值</small><strong id="totalRetail">$0</strong></div>
+  </section>
+
+  <section class="monthly">
+    <div class="monthly-head">
+      <div>
+        <small>銷售統計</small>
+        <h2 id="monthTitle">本月統計</h2>
+      </div>
+      <input id="monthPicker" type="month" onchange="renderMonthlyStats()">
+    </div>
+    <div class="month-grid">
+      <div><small>售出</small><strong id="monthUnits">0 件</strong></div>
+      <div><small>營業額</small><strong id="monthRevenue">$0</strong></div>
+      <div><small>商品成本</small><strong id="monthCost">$0</strong></div>
+      <div><small>毛利</small><strong id="monthProfit">$0</strong></div>
+    </div>
+    <details>
+      <summary>查看本月銷售明細</summary>
+      <div id="salesList" class="sales-list"></div>
+    </details>
   </section>
 
   <div class="tools">
@@ -121,6 +156,10 @@ input.form,select.form{
   <div class="sheet">
     <h2 id="modalTitle">新增商品</h2>
     <div class="grid">
+      <div class="field">
+        <label>商品序號</label>
+        <input id="sku" class="form" placeholder="例如 AAPE-001">
+      </div>
       <div class="field">
         <label>品牌</label>
         <input id="brand" class="form" placeholder="例如 AAPE">
@@ -166,7 +205,9 @@ input.form,select.form{
 
 <script>
 const KEY = 'yuanshi_inventory_v1';
+const SALES_KEY = 'yuanshi_sales_v1';
 let products = JSON.parse(localStorage.getItem(KEY) || '[]');
+let sales = JSON.parse(localStorage.getItem(SALES_KEY) || '[]');
 let editingId = null;
 let selectedSizes = {};
 let currentProductType = 'clothes';
@@ -196,7 +237,7 @@ function render(){
   if(brands.includes(old)) $('brandFilter').value = old;
 
   const filtered = products.filter(p=>{
-    const text = [p.brand,p.name,Object.keys(p.sizes||{}).join(' '),p.color].join(' ').toLowerCase();
+    const text = [p.sku,p.brand,p.name,Object.keys(p.sizes||{}).join(' '),p.color].join(' ').toLowerCase();
     return (!q || text.includes(q)) && (!bf || p.brand === bf);
   });
 
@@ -204,6 +245,7 @@ function render(){
   $('totalCost').textContent = money(products.reduce((a,p)=>a+Number(p.cost||0)*Number(p.qty||0),0));
   $('totalRetail').textContent = money(products.reduce((a,p)=>a+Number(p.price||0)*Number(p.qty||0),0));
 
+  renderMonthlyStats();
   if(!filtered.length){
     $('list').innerHTML = `<div class="empty">${products.length ? '找不到符合的商品' : '還沒有商品<br><br>按右下角「＋ 新增商品」開始記庫存'}</div>`;
     return;
@@ -215,6 +257,7 @@ function render(){
         <div>
           <div class="brand">${esc(p.brand || '未分類')}</div>
           <div class="name">${esc(p.name)}</div>
+          ${p.sku ? `<div class="meta">序號：${esc(p.sku)}</div>` : ''}
           <div class="meta">
             ${Object.keys(p.sizes||{}).length ? `尺寸：${Object.keys(p.sizes).map(esc).join(' / ')}　` : ''}${p.color ? `顏色：${esc(p.color)}` : ''}<br>
             <div class="size-stock">${Object.entries(p.sizes||{}).map(([s,q])=>`<span class="size-chip">${esc(s)}：${Number(q)}件</span>`).join('')}</div>
@@ -263,6 +306,45 @@ function renderSizeEditor(){
 function recalcQty(p){
   p.qty = Object.values(p.sizes||{}).reduce((a,n)=>a+Number(n||0),0);
 }
+
+function renderMonthlyStats(){
+  const ym = $('monthPicker')?.value || '';
+  if(!ym) return;
+  const [y,m] = ym.split('-');
+  $('monthTitle').textContent = `${Number(y)}年${Number(m)}月`;
+  const rows = sales.filter(s => String(s.date||'').slice(0,7) === ym);
+  const units = rows.reduce((a,s)=>a+Number(s.qty||1),0);
+  const revenue = rows.reduce((a,s)=>a+Number(s.price||0)*Number(s.qty||1),0);
+  const cost = rows.reduce((a,s)=>a+Number(s.cost||0)*Number(s.qty||1),0);
+  $('monthUnits').textContent = units.toLocaleString() + ' 件';
+  $('monthRevenue').textContent = money(revenue);
+  $('monthCost').textContent = money(cost);
+  $('monthProfit').textContent = money(revenue-cost);
+  if(!rows.length){
+    $('salesList').innerHTML = '<div class="no-sales">這個月份還沒有銷售紀錄</div>';
+    return;
+  }
+  $('salesList').innerHTML = rows.slice().reverse().map(s=>`
+    <div class="sale-row">
+      <div class="sale-top"><span>${esc(s.brand||'')} ${esc(s.name||'')}</span><span>${money(Number(s.price||0)*Number(s.qty||1))}</span></div>
+      <div class="sale-sub">${esc(s.date||'')} ・ ${s.sku ? '序號 '+esc(s.sku)+' ・ ' : ''}尺寸 ${esc(s.size||'-')} ・ ${Number(s.qty||1)} 件</div>
+    </div>`).join('');
+}
+function recordSale(p,size,qty=1){
+  sales.push({
+    id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+    date:new Date().toISOString().slice(0,10),
+    sku:p.sku||'',
+    brand:p.brand||'',
+    name:p.name||'',
+    size,
+    qty,
+    price:Number(p.price||0),
+    cost:Number(p.cost||0)
+  });
+  localStorage.setItem(SALES_KEY,JSON.stringify(sales));
+}
+
 function changeSizeQty(id, delta){
   const p = products.find(x=>x.id===id);
   if(!p) return;
@@ -274,6 +356,7 @@ function changeSizeQty(id, delta){
   if(p.sizes[size] === undefined) return alert('沒有這個尺寸');
   if(delta < 0 && Number(p.sizes[size])<=0) return alert(size+' 尺寸目前沒有庫存');
   p.sizes[size] = Math.max(0,Number(p.sizes[size]||0)+delta);
+  if(delta < 0) recordSale(p,size,1);
   recalcQty(p);
   persist();
 }
@@ -283,6 +366,7 @@ function changeQty(id, delta){
   if(!p) return;
   if(delta < 0 && Number(p.qty)<=0) return alert('這個商品目前沒有庫存');
   p.qty = Math.max(0, Number(p.qty||0)+delta);
+  if(delta < 0) recordSale(p,'-',1);
   persist();
 }
 
@@ -290,6 +374,7 @@ function openModal(id=null){
   editingId = id;
   const p = id ? products.find(x=>x.id===id) : null;
   $('modalTitle').textContent = p ? '編輯商品' : '新增商品';
+  $('sku').value = p?.sku || '';
   $('brand').value = p?.brand || '';
   $('productName').value = p?.name || '';
   currentProductType = p?.productType || ((p?.sizes && Object.keys(p.sizes).some(s=>SIZE_OPTIONS.shoes.includes(s))) ? 'shoes' : 'clothes');
@@ -315,6 +400,7 @@ function saveProduct(){
   if(!Object.keys(selectedSizes).length) return alert('請至少選擇一個尺寸');
   const data = {
     productType:currentProductType,
+    sku:$('sku').value.trim(),
     brand:$('brand').value.trim(),
     name,
     sizes:{...selectedSizes},
@@ -340,6 +426,8 @@ function deleteProduct(){
   persist();
 }
 
+const now = new Date();
+$('monthPicker').value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
 $('search').addEventListener('input',render);
 $('brandFilter').addEventListener('change',render);
 render();
