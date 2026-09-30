@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#111111">
+<title>猿始服飾｜庫存管理</title>
+<style>
+:root{
+  --bg:#f4f4f4;--card:#fff;--text:#151515;--muted:#777;--line:#e9e9e9;
+  --dark:#111;--danger:#d9363e;--warn:#fff3d6;--warntext:#9a6500;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Noto Sans TC","Segoe UI",sans-serif;
+  padding-bottom:110px;
+}
+header{
+  background:#111;color:white;padding:calc(22px + env(safe-area-inset-top)) 18px 22px;
+}
+.head{max-width:850px;margin:auto}
+header h1{font-size:25px;margin:0 0 6px}
+header p{font-size:14px;color:#bbb;margin:0}
+.wrap{max-width:850px;margin:auto;padding:16px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:14px}
+.stat{background:white;border-radius:15px;padding:14px 11px;box-shadow:0 2px 10px #00000008}
+.stat small{display:block;color:#777;font-size:12px;margin-bottom:5px}
+.stat strong{font-size:18px}
+.tools{display:flex;gap:9px;margin-bottom:14px}
+.search{flex:1;background:white;border:1px solid #e5e5e5;border-radius:14px;padding:13px 14px;font-size:16px;outline:none}
+select.filter{border:1px solid #e5e5e5;background:white;border-radius:14px;padding:0 10px;font-size:14px;max-width:120px}
+.card{background:white;border-radius:17px;padding:16px;margin-bottom:11px;box-shadow:0 2px 12px #00000008}
+.top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.name{font-size:18px;font-weight:750;margin-bottom:4px}
+.brand{display:inline-block;font-size:12px;background:#efefef;padding:4px 8px;border-radius:999px;margin-bottom:8px}
+.meta{font-size:14px;color:#666;line-height:1.7}
+.stock{text-align:right;min-width:70px}
+.stock span{display:block;color:#777;font-size:12px}
+.stock strong{font-size:26px}
+.low{background:var(--warn);color:var(--warntext);padding:4px 7px;border-radius:8px;font-size:11px;font-weight:700;display:inline-block;margin-top:4px}
+.actions{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-top:13px;padding-top:13px;border-top:1px solid var(--line)}
+button{border:0;border-radius:11px;padding:11px 12px;font-size:15px;font-weight:700;cursor:pointer}
+.out{background:#111;color:white}
+.in{background:#ededed;color:#111}
+.edit{background:#f6f6f6;color:#555;padding-left:14px;padding-right:14px}
+.empty{text-align:center;color:#888;background:white;border-radius:17px;padding:45px 20px}
+.fab{
+  position:fixed;right:18px;bottom:calc(20px + env(safe-area-inset-bottom));
+  background:#111;color:white;border-radius:999px;padding:15px 20px;
+  box-shadow:0 7px 25px #0004;z-index:10
+}
+.modal{
+  display:none;position:fixed;inset:0;background:#0008;z-index:20;
+  align-items:flex-end;justify-content:center
+}
+.modal.show{display:flex}
+.sheet{
+  width:100%;max-width:600px;background:white;border-radius:22px 22px 0 0;
+  max-height:92vh;overflow:auto;padding:20px 18px calc(22px + env(safe-area-inset-bottom))
+}
+.sheet h2{margin:0 0 15px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.field{margin-bottom:11px}
+.field.full{grid-column:1/-1}
+label{font-size:13px;font-weight:700;display:block;margin-bottom:5px}
+input.form,select.form{
+  width:100%;border:1px solid #ddd;border-radius:11px;padding:12px;font-size:16px;outline:none;background:white
+}
+.sheet-actions{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:8px}
+.cancel{background:#eee}
+.save{background:#111;color:white}
+.delete{background:#fff0f0;color:var(--danger);width:100%;margin-top:9px}
+.note{font-size:12px;color:#888;margin:10px 2px 0}
+@media(max-width:520px){
+  .stats{grid-template-columns:1fr 1fr}
+  .stats .stat:last-child{grid-column:1/-1}
+  .tools{flex-direction:column}
+  select.filter{max-width:none;padding:12px}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="head">
+    <h1>猿始服飾｜庫存管理</h1>
+    <p>快速版・商品庫存即時記錄</p>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="stats">
+    <div class="stat"><small>庫存總件數</small><strong id="totalQty">0</strong></div>
+    <div class="stat"><small>庫存總成本</small><strong id="totalCost">$0</strong></div>
+    <div class="stat"><small>庫存售價總值</small><strong id="totalRetail">$0</strong></div>
+  </section>
+
+  <div class="tools">
+    <input id="search" class="search" placeholder="搜尋品牌、商品、尺寸、顏色">
+    <select id="brandFilter" class="filter">
+      <option value="">全部品牌</option>
+    </select>
+  </div>
+
+  <section id="list"></section>
+</main>
+
+<button class="fab" onclick="openModal()">＋ 新增商品</button>
+
+<div id="modal" class="modal" onclick="backdropClose(event)">
+  <div class="sheet">
+    <h2 id="modalTitle">新增商品</h2>
+    <div class="grid">
+      <div class="field">
+        <label>品牌</label>
+        <input id="brand" class="form" placeholder="例如 AAPE">
+      </div>
+      <div class="field">
+        <label>商品名稱</label>
+        <input id="productName" class="form" placeholder="例如 黑色短T">
+      </div>
+      <div class="field">
+        <label>尺寸</label>
+        <input id="size" class="form" placeholder="M / L / XL">
+      </div>
+      <div class="field">
+        <label>顏色</label>
+        <input id="color" class="form" placeholder="黑 / 白">
+      </div>
+      <div class="field">
+        <label>進貨成本</label>
+        <input id="cost" class="form" inputmode="numeric" type="number" min="0" placeholder="0">
+      </div>
+      <div class="field">
+        <label>售價</label>
+        <input id="price" class="form" inputmode="numeric" type="number" min="0" placeholder="0">
+      </div>
+      <div class="field full">
+        <label>目前庫存數量</label>
+        <input id="qty" class="form" inputmode="numeric" type="number" min="0" value="1">
+      </div>
+    </div>
+    <div class="sheet-actions">
+      <button class="cancel" onclick="closeModal()">取消</button>
+      <button class="save" onclick="saveProduct()">儲存商品</button>
+    </div>
+    <button id="deleteBtn" class="delete" style="display:none" onclick="deleteProduct()">刪除這個商品</button>
+    <p class="note">目前資料儲存在這台裝置的瀏覽器中。之後可升級 Firebase，讓多支手機同步。</p>
+  </div>
+</div>
+
+<script>
+const KEY = 'yuanshi_inventory_v1';
+let products = JSON.parse(localStorage.getItem(KEY) || '[]');
+let editingId = null;
+
+const $ = id => document.getElementById(id);
+const money = n => '$' + Number(n || 0).toLocaleString('zh-TW');
+
+function persist(){
+  localStorage.setItem(KEY, JSON.stringify(products));
+  render();
+}
+function esc(s=''){
+  return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+}
+function render(){
+  const q = $('search').value.trim().toLowerCase();
+  const bf = $('brandFilter').value;
+
+  const brands = [...new Set(products.map(p=>p.brand).filter(Boolean))].sort();
+  const old = $('brandFilter').value;
+  $('brandFilter').innerHTML = '<option value="">全部品牌</option>' +
+    brands.map(b=>`<option value="${esc(b)}">${esc(b)}</option>`).join('');
+  if(brands.includes(old)) $('brandFilter').value = old;
+
+  const filtered = products.filter(p=>{
+    const text = [p.brand,p.name,p.size,p.color].join(' ').toLowerCase();
+    return (!q || text.includes(q)) && (!bf || p.brand === bf);
+  });
+
+  $('totalQty').textContent = products.reduce((a,p)=>a+Number(p.qty||0),0).toLocaleString();
+  $('totalCost').textContent = money(products.reduce((a,p)=>a+Number(p.cost||0)*Number(p.qty||0),0));
+  $('totalRetail').textContent = money(products.reduce((a,p)=>a+Number(p.price||0)*Number(p.qty||0),0));
+
+  if(!filtered.length){
+    $('list').innerHTML = `<div class="empty">${products.length ? '找不到符合的商品' : '還沒有商品<br><br>按右下角「＋ 新增商品」開始記庫存'}</div>`;
+    return;
+  }
+
+  $('list').innerHTML = filtered.map(p=>`
+    <article class="card">
+      <div class="top">
+        <div>
+          <div class="brand">${esc(p.brand || '未分類')}</div>
+          <div class="name">${esc(p.name)}</div>
+          <div class="meta">
+            ${p.size ? `尺寸：${esc(p.size)}　` : ''}${p.color ? `顏色：${esc(p.color)}` : ''}<br>
+            成本 ${money(p.cost)} ・ 售價 ${money(p.price)}
+          </div>
+        </div>
+        <div class="stock">
+          <span>目前庫存</span>
+          <strong>${Number(p.qty||0)}</strong>
+          ${Number(p.qty||0)<=1 ? '<div class="low">低庫存</div>' : ''}
+        </div>
+      </div>
+      <div class="actions">
+        <button class="out" onclick="changeQty('${p.id}',-1)">− 售出</button>
+        <button class="in" onclick="changeQty('${p.id}',1)">＋ 進貨</button>
+        <button class="edit" onclick="openModal('${p.id}')">編輯</button>
+      </div>
+    </article>
+  `).join('');
+}
+
+function changeQty(id, delta){
+  const p = products.find(x=>x.id===id);
+  if(!p) return;
+  if(delta < 0 && Number(p.qty)<=0) return alert('這個商品目前沒有庫存');
+  p.qty = Math.max(0, Number(p.qty||0)+delta);
+  persist();
+}
+
+function openModal(id=null){
+  editingId = id;
+  const p = id ? products.find(x=>x.id===id) : null;
+  $('modalTitle').textContent = p ? '編輯商品' : '新增商品';
+  $('brand').value = p?.brand || '';
+  $('productName').value = p?.name || '';
+  $('size').value = p?.size || '';
+  $('color').value = p?.color || '';
+  $('cost').value = p?.cost ?? '';
+  $('price').value = p?.price ?? '';
+  $('qty').value = p?.qty ?? 1;
+  $('deleteBtn').style.display = p ? 'block' : 'none';
+  $('modal').classList.add('show');
+}
+function closeModal(){
+  $('modal').classList.remove('show');
+  editingId = null;
+}
+function backdropClose(e){
+  if(e.target.id==='modal') closeModal();
+}
+function saveProduct(){
+  const name = $('productName').value.trim();
+  if(!name) return alert('請輸入商品名稱');
+  const data = {
+    brand:$('brand').value.trim(),
+    name,
+    size:$('size').value.trim(),
+    color:$('color').value.trim(),
+    cost:Math.max(0,Number($('cost').value||0)),
+    price:Math.max(0,Number($('price').value||0)),
+    qty:Math.max(0,Number($('qty').value||0))
+  };
+  if(editingId){
+    const i = products.findIndex(x=>x.id===editingId);
+    if(i>=0) products[i] = {...products[i],...data};
+  }else{
+    products.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,7),...data});
+  }
+  closeModal();
+  persist();
+}
+function deleteProduct(){
+  if(!editingId) return;
+  if(!confirm('確定要刪除這個商品嗎？')) return;
+  products = products.filter(x=>x.id!==editingId);
+  closeModal();
+  persist();
+}
+
+$('search').addEventListener('input',render);
+$('brandFilter').addEventListener('change',render);
+render();
+</script>
+</body>
+</html>
