@@ -1,0 +1,1 @@
+# yuanshi-inventory
