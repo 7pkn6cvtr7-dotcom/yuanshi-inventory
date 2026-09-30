@@ -78,6 +78,15 @@ input.form,select.form{
   .tools{flex-direction:column}
   select.filter{max-width:none;padding:12px}
 }
+
+.size-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;margin-bottom:10px}
+.size-btn{background:#f1f1f1;color:#222;border:1px solid #ddd;padding:11px 4px}
+.size-btn.selected{background:#111;color:#fff;border-color:#111}
+.size-row{display:grid;grid-template-columns:60px 1fr;gap:10px;align-items:center;margin-top:7px}
+.size-row b{font-size:14px}
+.size-row input{width:100%;border:1px solid #ddd;border-radius:10px;padding:10px;font-size:16px}
+.size-stock{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.size-chip{background:#f2f2f2;border-radius:8px;padding:5px 8px;font-size:12px}
 </style>
 </head>
 <body>
@@ -119,9 +128,16 @@ input.form,select.form{
         <label>商品名稱</label>
         <input id="productName" class="form" placeholder="例如 黑色短T">
       </div>
-      <div class="field">
-        <label>尺寸</label>
-        <input id="size" class="form" placeholder="M / L / XL">
+      <div class="field full">
+        <label>尺寸與各尺寸庫存（可複選）</label>
+        <div class="size-grid" id="sizeGrid">
+          <button type="button" class="size-btn" data-size="S" onclick="toggleSize('S')">S</button>
+          <button type="button" class="size-btn" data-size="M" onclick="toggleSize('M')">M</button>
+          <button type="button" class="size-btn" data-size="L" onclick="toggleSize('L')">L</button>
+          <button type="button" class="size-btn" data-size="XL" onclick="toggleSize('XL')">XL</button>
+          <button type="button" class="size-btn" data-size="2XL" onclick="toggleSize('2XL')">2XL</button>
+        </div>
+        <div id="sizeQtys"></div>
       </div>
       <div class="field">
         <label>顏色</label>
@@ -135,10 +151,7 @@ input.form,select.form{
         <label>售價</label>
         <input id="price" class="form" inputmode="numeric" type="number" min="0" placeholder="0">
       </div>
-      <div class="field full">
-        <label>目前庫存數量</label>
-        <input id="qty" class="form" inputmode="numeric" type="number" min="0" value="1">
-      </div>
+
     </div>
     <div class="sheet-actions">
       <button class="cancel" onclick="closeModal()">取消</button>
@@ -153,6 +166,7 @@ input.form,select.form{
 const KEY = 'yuanshi_inventory_v1';
 let products = JSON.parse(localStorage.getItem(KEY) || '[]');
 let editingId = null;
+let selectedSizes = {};
 
 const $ = id => document.getElementById(id);
 const money = n => '$' + Number(n || 0).toLocaleString('zh-TW');
@@ -175,7 +189,7 @@ function render(){
   if(brands.includes(old)) $('brandFilter').value = old;
 
   const filtered = products.filter(p=>{
-    const text = [p.brand,p.name,p.size,p.color].join(' ').toLowerCase();
+    const text = [p.brand,p.name,Object.keys(p.sizes||{}).join(' '),p.color].join(' ').toLowerCase();
     return (!q || text.includes(q)) && (!bf || p.brand === bf);
   });
 
@@ -195,7 +209,8 @@ function render(){
           <div class="brand">${esc(p.brand || '未分類')}</div>
           <div class="name">${esc(p.name)}</div>
           <div class="meta">
-            ${p.size ? `尺寸：${esc(p.size)}　` : ''}${p.color ? `顏色：${esc(p.color)}` : ''}<br>
+            ${Object.keys(p.sizes||{}).length ? `尺寸：${Object.keys(p.sizes).map(esc).join(' / ')}　` : ''}${p.color ? `顏色：${esc(p.color)}` : ''}<br>
+            <div class="size-stock">${Object.entries(p.sizes||{}).map(([s,q])=>`<span class="size-chip">${esc(s)}：${Number(q)}件</span>`).join('')}</div>
             成本 ${money(p.cost)} ・ 售價 ${money(p.price)}
           </div>
         </div>
@@ -206,12 +221,46 @@ function render(){
         </div>
       </div>
       <div class="actions">
-        <button class="out" onclick="changeQty('${p.id}',-1)">− 售出</button>
-        <button class="in" onclick="changeQty('${p.id}',1)">＋ 進貨</button>
+        <button class="out" onclick="changeSizeQty('${p.id}',-1)">− 售出</button>
+        <button class="in" onclick="changeSizeQty('${p.id}',1)">＋ 進貨</button>
         <button class="edit" onclick="openModal('${p.id}')">編輯</button>
       </div>
     </article>
   `).join('');
+}
+
+
+function toggleSize(size){
+  if(selectedSizes[size] !== undefined) delete selectedSizes[size];
+  else selectedSizes[size] = 0;
+  renderSizeEditor();
+}
+function renderSizeEditor(){
+  document.querySelectorAll('.size-btn').forEach(btn=>{
+    btn.classList.toggle('selected', selectedSizes[btn.dataset.size] !== undefined);
+  });
+  $('sizeQtys').innerHTML = Object.keys(selectedSizes).map(s=>`
+    <div class="size-row"><b>${s}</b>
+      <input type="number" min="0" inputmode="numeric" value="${Number(selectedSizes[s]||0)}"
+        oninput="selectedSizes['${s}']=Math.max(0,Number(this.value||0))" placeholder="庫存數量">
+    </div>`).join('');
+}
+function recalcQty(p){
+  p.qty = Object.values(p.sizes||{}).reduce((a,n)=>a+Number(n||0),0);
+}
+function changeSizeQty(id, delta){
+  const p = products.find(x=>x.id===id);
+  if(!p) return;
+  const sizes = Object.keys(p.sizes||{});
+  if(!sizes.length) return alert('請先編輯商品並選擇尺寸');
+  const msg = '請輸入尺寸：\\n' + sizes.map(s=>`${s}（${Number(p.sizes[s]||0)}件）`).join('、');
+  const size = (prompt(msg)||'').trim().toUpperCase();
+  if(!size) return;
+  if(p.sizes[size] === undefined) return alert('沒有這個尺寸');
+  if(delta < 0 && Number(p.sizes[size])<=0) return alert(size+' 尺寸目前沒有庫存');
+  p.sizes[size] = Math.max(0,Number(p.sizes[size]||0)+delta);
+  recalcQty(p);
+  persist();
 }
 
 function changeQty(id, delta){
@@ -228,11 +277,11 @@ function openModal(id=null){
   $('modalTitle').textContent = p ? '編輯商品' : '新增商品';
   $('brand').value = p?.brand || '';
   $('productName').value = p?.name || '';
-  $('size').value = p?.size || '';
+  selectedSizes = p?.sizes ? {...p.sizes} : (p?.size ? {[p.size]:Number(p.qty||0)} : {});
+  renderSizeEditor();
   $('color').value = p?.color || '';
   $('cost').value = p?.cost ?? '';
   $('price').value = p?.price ?? '';
-  $('qty').value = p?.qty ?? 1;
   $('deleteBtn').style.display = p ? 'block' : 'none';
   $('modal').classList.add('show');
 }
@@ -246,14 +295,15 @@ function backdropClose(e){
 function saveProduct(){
   const name = $('productName').value.trim();
   if(!name) return alert('請輸入商品名稱');
+  if(!Object.keys(selectedSizes).length) return alert('請至少選擇一個尺寸');
   const data = {
     brand:$('brand').value.trim(),
     name,
-    size:$('size').value.trim(),
+    sizes:{...selectedSizes},
     color:$('color').value.trim(),
     cost:Math.max(0,Number($('cost').value||0)),
     price:Math.max(0,Number($('price').value||0)),
-    qty:Math.max(0,Number($('qty').value||0))
+    qty:Object.values(selectedSizes).reduce((a,n)=>a+Number(n||0),0)
   };
   if(editingId){
     const i = products.findIndex(x=>x.id===editingId);
