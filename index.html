@@ -107,6 +107,11 @@ summary{font-weight:700;cursor:pointer}
 .color-btn{background:#f1f1f1;color:#222;border:1px solid #ddd;border-radius:999px;padding:9px 13px}
 .color-btn.selected{background:#111;color:#fff;border-color:#111}
 .custom-color{display:grid;grid-template-columns:1fr auto;gap:7px}.custom-color button{background:#eee;color:#111}
+.variant-group{border-top:1px dashed #ddd;padding-top:8px;margin-top:9px}
+.variant-color{font-size:14px;font-weight:800;margin-bottom:5px}
+.variant-row{display:grid;grid-template-columns:90px 1fr;gap:9px;align-items:center;margin:6px 0}
+.variant-row b{font-size:13px}.variant-row input{width:100%;border:1px solid #ddd;border-radius:10px;padding:9px;font-size:15px}
+.variant-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}.variant-chip{font-size:12px;background:#f2f2f2;padding:5px 7px;border-radius:7px}
 </style>
 </head>
 <body>
@@ -216,6 +221,7 @@ let sales = JSON.parse(localStorage.getItem(SALES_KEY) || '[]');
 let editingId = null;
 let selectedSizes = {};
 let selectedColors = [];
+let variantStock = {};
 const COLOR_OPTIONS=['黑','白','灰','藍','紅','綠','米','卡其'];
 let currentProductType = 'clothes';
 const SIZE_OPTIONS = {
@@ -267,7 +273,7 @@ function render(){
           ${p.sku ? `<div class="meta">序號：${esc(p.sku)}</div>` : ''}
           <div class="meta">
             ${Object.keys(p.sizes||{}).length ? `尺寸：${Object.keys(p.sizes).map(esc).join(' / ')}　` : ''}${(p.colors||[]).length ? `顏色：${p.colors.map(esc).join(' / ')}` : (p.color ? `顏色：${esc(p.color)}` : '')}<br>
-            <div class="size-stock">${Object.entries(p.sizes||{}).map(([s,q])=>`<span class="size-chip">${esc(s)}：${Number(q)}件</span>`).join('')}</div>
+            <div class="size-stock">${Object.entries(p.sizes||{}).map(([s,q])=>`<span class="size-chip">${esc(s)}：${Number(q)}件</span>`).join('')}</div><div class="variant-chips">${Object.entries(p.variantStock||{}).filter(([k,q])=>Number(q)>0).map(([k,q])=>{const [c,s]=k.split('||');return `<span class="variant-chip">${esc(c)} ${esc(s)}：${Number(q)}件</span>`}).join('')}</div>
             成本 ${money(p.cost)} ・ 售價 ${money(p.price)}
           </div>
         </div>
@@ -287,6 +293,23 @@ function render(){
 }
 
 
+
+function renderVariants(){
+  if(!$('sizeQtys')) return;
+  const sizes=Object.keys(selectedSizes);
+  if(!selectedColors.length || !sizes.length){
+    $('sizeQtys').innerHTML='<div class="note">先選顏色與尺寸，就會出現「黑 M、灰 L」這種獨立庫存。</div>';
+    return;
+  }
+  $('sizeQtys').innerHTML=selectedColors.map(c=>`
+    <div class="variant-group">
+      <div class="variant-color">${esc(c)}</div>
+      ${sizes.map(s=>{
+        const key=c+'||'+s;
+        return `<div class="variant-row"><b>${esc(c)} ${esc(s)}</b><input type="number" min="0" inputmode="numeric" value="${Number(variantStock[key]||0)}" oninput="variantStock['${c}||${s}']=Math.max(0,Number(this.value||0))"></div>`;
+      }).join('')}
+    </div>`).join('');
+}
 function changeProductType(){
   const next = $('productType').value;
   if(next !== currentProductType){
@@ -301,12 +324,12 @@ function renderColors(){
 }
 function toggleColor(c){
   selectedColors=selectedColors.includes(c)?selectedColors.filter(x=>x!==c):[...selectedColors,c];
-  renderColors();
+  renderColors(); renderVariants();
 }
 function addColor(){
   const c=$('customColor').value.trim(); if(!c)return;
   if(!selectedColors.includes(c))selectedColors.push(c);
-  $('customColor').value=''; renderColors();
+  $('customColor').value=''; renderColors(); renderVariants();
 }
 function toggleSize(size){
   if(selectedSizes[size] !== undefined) delete selectedSizes[size];
@@ -315,13 +338,9 @@ function toggleSize(size){
 }
 function renderSizeEditor(){
   const opts = SIZE_OPTIONS[currentProductType];
-  $('sizeLabel').textContent = (currentProductType === 'shoes' ? '鞋子尺寸' : '衣服尺寸') + '與各尺寸庫存（可複選）';
+  $('sizeLabel').textContent = (currentProductType === 'shoes' ? '鞋子尺寸' : '衣服尺寸') + '（可複選）';
   $('sizeGrid').innerHTML = opts.map(s=>`<button type="button" class="size-btn ${selectedSizes[s] !== undefined ? 'selected':''}" data-size="${s}" onclick="toggleSize('${s}')">${s}</button>`).join('');
-  $('sizeQtys').innerHTML = Object.keys(selectedSizes).map(s=>`
-    <div class="size-row"><b>${s}</b>
-      <input type="number" min="0" inputmode="numeric" value="${Number(selectedSizes[s]||0)}"
-        oninput="selectedSizes['${s}']=Math.max(0,Number(this.value||0))" placeholder="庫存數量">
-    </div>`).join('');
+  renderVariants();
 }
 function recalcQty(p){
   p.qty = Object.values(p.sizes||{}).reduce((a,n)=>a+Number(n||0),0);
@@ -347,10 +366,10 @@ function renderMonthlyStats(){
   $('salesList').innerHTML = rows.slice().reverse().map(s=>`
     <div class="sale-row">
       <div class="sale-top"><span>${esc(s.brand||'')} ${esc(s.name||'')}</span><span>${money(Number(s.price||0)*Number(s.qty||1))}</span></div>
-      <div class="sale-sub">${esc(s.date||'')} ・ ${s.sku ? '序號 '+esc(s.sku)+' ・ ' : ''}尺寸 ${esc(s.size||'-')} ・ ${Number(s.qty||1)} 件</div>
+      <div class="sale-sub">${esc(s.date||'')} ・ ${s.sku ? '序號 '+esc(s.sku)+' ・ ' : ''}${s.color ? '顏色 '+esc(s.color)+' ・ ' : ''}尺寸 ${esc(s.size||'-')} ・ ${Number(s.qty||1)} 件</div>
     </div>`).join('');
 }
-function recordSale(p,size,qty=1){
+function recordSale(p,size,qty=1,color=''){
   sales.push({
     id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),
     date:new Date().toISOString().slice(0,10),
@@ -358,6 +377,7 @@ function recordSale(p,size,qty=1){
     brand:p.brand||'',
     name:p.name||'',
     size,
+    color,
     qty,
     price:Number(p.price||0),
     cost:Number(p.cost||0)
@@ -366,18 +386,20 @@ function recordSale(p,size,qty=1){
 }
 
 function changeSizeQty(id, delta){
-  const p = products.find(x=>x.id===id);
-  if(!p) return;
-  const sizes = Object.keys(p.sizes||{});
-  if(!sizes.length) return alert('請先編輯商品並選擇尺寸');
-  const msg = '請輸入尺寸：\\n' + sizes.map(s=>`${s}（${Number(p.sizes[s]||0)}件）`).join('、');
-  const size = (prompt(msg)||'').trim().toUpperCase();
-  if(!size) return;
-  if(p.sizes[size] === undefined) return alert('沒有這個尺寸');
-  if(delta < 0 && Number(p.sizes[size])<=0) return alert(size+' 尺寸目前沒有庫存');
-  p.sizes[size] = Math.max(0,Number(p.sizes[size]||0)+delta);
-  if(delta < 0) recordSale(p,size,1);
-  recalcQty(p);
+  const p=products.find(x=>x.id===id); if(!p)return;
+  const variants=Object.keys(p.variantStock||{}).filter(k=>Number(p.variantStock[k]||0)>0 || delta>0);
+  if(!variants.length)return alert('請先編輯商品，設定顏色 × 尺寸庫存');
+  const labels=variants.map(k=>{const [c,s]=k.split('||');return `${c} ${s}（${Number(p.variantStock[k]||0)}件）`;});
+  const answer=(prompt('請輸入要'+(delta<0?'售出':'進貨')+'的規格，例如 黑 M：\n'+labels.join('、'))||'').trim();
+  if(!answer)return;
+  const key=variants.find(k=>{const [c,s]=k.split('||');return (c+' '+s).toLowerCase()===answer.toLowerCase();});
+  if(!key)return alert('找不到這個規格，請照「黑 M」這種格式輸入');
+  const [color,size]=key.split('||'),cur=Number(p.variantStock[key]||0);
+  if(delta<0 && cur<=0)return alert(color+' '+size+' 已經沒有庫存');
+  p.variantStock[key]=Math.max(0,cur+delta);
+  p.sizes[size]=(p.colors||[]).reduce((a,c)=>a+Number(p.variantStock[c+'||'+size]||0),0);
+  p.qty=Object.values(p.variantStock).reduce((a,n)=>a+Number(n||0),0);
+  if(delta<0) recordSale(p,size,1,color);
   persist();
 }
 
@@ -402,6 +424,10 @@ function openModal(id=null){
   selectedSizes = p?.sizes ? {...p.sizes} : (p?.size ? {[p.size]:Number(p.qty||0)} : {});
   renderSizeEditor();
   selectedColors = p?.colors ? [...p.colors] : (p?.color ? [p.color] : []);
+  variantStock = p?.variantStock ? {...p.variantStock} : {};
+  if(p && !p.variantStock && selectedColors.length){
+    Object.entries(p.sizes||{}).forEach(([s,q])=>variantStock[selectedColors[0]+'||'+s]=Number(q||0));
+  }
   renderColors();
   $('cost').value = p?.cost ?? '';
   $('price').value = p?.price ?? '';
@@ -425,11 +451,12 @@ function saveProduct(){
     sku:$('sku').value.trim(),
     brand:$('brand').value.trim(),
     name,
-    sizes:{...selectedSizes},
+    sizes:Object.fromEntries(Object.keys(selectedSizes).map(s=>[s,selectedColors.reduce((a,c)=>a+Number(variantStock[c+'||'+s]||0),0)])),
     colors:[...selectedColors],
+    variantStock:{...variantStock},
     cost:Math.max(0,Number($('cost').value||0)),
     price:Math.max(0,Number($('price').value||0)),
-    qty:Object.values(selectedSizes).reduce((a,n)=>a+Number(n||0),0)
+    qty:Object.values(variantStock).reduce((a,n)=>a+Number(n||0),0)
   };
   if(editingId){
     const i = products.findIndex(x=>x.id===editingId);
