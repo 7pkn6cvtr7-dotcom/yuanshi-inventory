@@ -41,6 +41,13 @@ h1{font-size:24px;margin:0 0 5px}.sub{font-size:13px;color:#bbb}
 .spec b{display:block;font-size:15px}.spec span{font-size:12px;color:#777}.stepper{display:grid;grid-template-columns:52px 1fr 52px;gap:8px;align-items:center;margin:14px 0}
 .stepper button{height:48px;border:0;border-radius:12px;background:#eee;font-size:24px}.stepper input{text-align:center;height:48px;border:1px solid #ddd;border-radius:12px;font-size:20px;font-weight:800;width:100%}
 .summarybox{background:#f5f5f5;border-radius:13px;padding:12px;font-size:13px;line-height:1.7}
+.paypick{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
+.paybtn{border:1px solid #ddd;background:#fff;border-radius:12px;padding:13px 8px;font-weight:800}
+.paybtn.on{background:#111;color:#fff;border-color:#111}
+.paystats{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:10px}
+.paystats div{background:#f6f6f6;border-radius:11px;padding:10px}
+.paystats small{display:block;color:#777;font-size:11px}
+.paystats strong{font-size:14px}
 @media(max-width:560px){.stats{grid-template-columns:1fr 1fr}.stats .stat:last-child{grid-column:1/-1}.grid4{grid-template-columns:1fr 1fr}.tools{flex-direction:column}.grid{grid-template-columns:1fr}.full{grid-column:auto}.specgrid{grid-template-columns:1fr 1fr}}
 </style>
 </head>
@@ -76,6 +83,12 @@ h1{font-size:24px;margin:0 0 5px}.sub{font-size:13px;color:#bbb}
 <div><small>營業額</small><strong id="monthRevenue">$0</strong></div>
 <div><small>商品成本</small><strong id="monthCost">$0</strong></div>
 <div><small>毛利</small><strong id="monthProfit">$0</strong></div>
+</div>
+<div class="paystats">
+<div><small>現金</small><strong id="payCash">$0</strong></div>
+<div><small>轉帳</small><strong id="payTransfer">$0</strong></div>
+<div><small>蝦皮</small><strong id="payShopee">$0</strong></div>
+<div><small>貨到付款</small><strong id="payCod">$0</strong></div>
 </div>
 <details style="margin-top:10px" open><summary>銷售明細</summary><div id="salesList"></div></details>
 </div>
@@ -122,6 +135,15 @@ h1{font-size:24px;margin:0 0 5px}.sub{font-size:13px;color:#bbb}
 <div id="quickProduct" class="muted"></div>
 <div id="quickSpecs" class="specgrid"></div>
 <div id="quickSelected" class="summarybox">請先選擇規格</div>
+<div id="paymentArea">
+<label style="margin-top:14px">付款方式</label>
+<div class="paypick">
+<button type="button" class="paybtn" data-pay="現金">現金</button>
+<button type="button" class="paybtn" data-pay="轉帳">轉帳</button>
+<button type="button" class="paybtn" data-pay="蝦皮">蝦皮</button>
+<button type="button" class="paybtn" data-pay="貨到付款">貨到付款</button>
+</div>
+</div>
 <div class="stepper"><button id="minusQty">−</button><input id="quickQty" type="number" min="1" value="1"><button id="plusQty">＋</button></div>
 <div id="quickMoney" class="summarybox"></div>
 <div class="sheetactions"><button id="quickCancel" class="btn light">取消</button><button id="quickConfirm" class="btn dark">確認</button></div>
@@ -148,7 +170,7 @@ const msg=e=>(e?.code||'').replace('auth/','')||e?.message||String(e);
 
 let products=[],sales=[],stockLogs=[],editingId=null,selectedSizes=[],selectedColors=[],variantStock={};
 let unsubP=null,unsubS=null,unsubL=null;
-let quickProduct=null,quickAct=null,quickKey=null;
+let quickProduct=null,quickAct=null,quickKey=null,quickPayment='';
 
 const sizes={clothes:['XS','S','M','L','XL','2XL'],shoes:['23','23.5','24','24.5','25','25.5','26','26.5','27','27.5','28','28.5','29']};
 const baseColors=['黑','白','灰','藍','紅','綠','米','卡其'];
@@ -192,13 +214,15 @@ document.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>action(b.datase
 
 function action(id,act){
 if(act==='edit')return openModal(id);
-quickProduct=products.find(x=>x.id===id);quickAct=act;quickKey=null;
+quickProduct=products.find(x=>x.id===id);quickAct=act;quickKey=null;quickPayment='';
 if(!quickProduct)return;
 let entries=Object.entries(quickProduct.variantStock||{});
 if(!entries.length)return alert('請先編輯商品設定規格');
 $('quickTitle').textContent=act==='out'?'快速售出':'快速進貨';
 $('quickProduct').textContent=`${quickProduct.brand||''} ${quickProduct.name||''}${quickProduct.sku?'｜'+quickProduct.sku:''}`;
 $('quickQty').value=1;
+$('paymentArea').classList.toggle('hidden',act!=='out');
+document.querySelectorAll('[data-pay]').forEach(x=>x.classList.remove('on'));
 $('quickSpecs').innerHTML=entries.map(([k,v])=>{
 let[c,s]=k.split('||'),n=Number(v||0),disabled=act==='out'&&n<=0;
 return `<button class="spec ${disabled?'soldout':''}" data-qkey="${esc(k)}" ${disabled?'disabled':''}><b>${esc(c)} ${esc(s)}</b><span>目前 ${n} 件</span></button>`;
@@ -221,8 +245,14 @@ $('quickQty').oninput=updateQuickSummary;
 $('quickCancel').onclick=()=>$('quickModal').classList.remove('show');
 $('quickModal').onclick=e=>{if(e.target===$('quickModal'))$('quickModal').classList.remove('show')};
 
+document.querySelectorAll('[data-pay]').forEach(b=>b.onclick=()=>{
+quickPayment=b.dataset.pay;
+document.querySelectorAll('[data-pay]').forEach(x=>x.classList.toggle('on',x.dataset.pay===quickPayment));
+});
+
 $('quickConfirm').onclick=async()=>{
 if(!quickProduct||!quickKey)return alert('請先選擇規格');
+if(quickAct==='out'&&!quickPayment)return alert('請選擇付款方式');
 let q=Math.max(1,Number($('quickQty').value||1)),ref=doc(db,'products',quickProduct.id);
 let logRef=doc(collection(db,quickAct==='out'?'sales':'stockLogs'));
 try{
@@ -235,7 +265,7 @@ let qty=Object.values(vs).reduce((a,n)=>a+Number(n||0),0);
 tx.update(ref,{variantStock:vs,qty,updatedAt:serverTimestamp(),updatedBy:auth.currentUser.email});
 let[c,s]=quickKey.split('||');
 let base={productId:quickProduct.id,sku:d.sku||'',brand:d.brand||'',name:d.name||'',color:c,size:s,qty:q,cost:Number(d.cost||0),price:Number(d.price||0),date:new Date().toISOString().slice(0,10),createdAt:serverTimestamp(),by:auth.currentUser.email};
-if(quickAct==='out')tx.set(logRef,{...base,type:'sale'});
+if(quickAct==='out')tx.set(logRef,{...base,type:'sale',paymentMethod:quickPayment});
 else tx.set(logRef,{...base,type:'stock_in',totalCost:Number(d.cost||0)*q});
 });
 $('quickModal').classList.remove('show');
@@ -248,7 +278,12 @@ let[y,m]=ym.split('-');$('monthTitle').textContent=`${+y}年${+m}月`;
 let r=sales.filter(s=>String(s.date||'').slice(0,7)===ym);
 let u=r.reduce((a,s)=>a+Number(s.qty||1),0),rev=r.reduce((a,s)=>a+Number(s.price||0)*Number(s.qty||1),0),c=r.reduce((a,s)=>a+Number(s.cost||0)*Number(s.qty||1),0);
 $('monthUnits').textContent=u+' 件';$('monthRevenue').textContent=money(rev);$('monthCost').textContent=money(c);$('monthProfit').textContent=money(rev-c);
-$('salesList').innerHTML=r.length?r.slice().reverse().map(s=>`<div class="log"><b>${esc(s.brand)} ${esc(s.name)}</b>　${esc(s.color)} ${esc(s.size)} × ${Number(s.qty||1)}<br>營業額 ${money(Number(s.price||0)*Number(s.qty||1))} ・ 成本 ${money(Number(s.cost||0)*Number(s.qty||1))} ・ 毛利 ${money((Number(s.price||0)-Number(s.cost||0))*Number(s.qty||1))}<br><span class="muted">${esc(s.date)}${s.sku?' ・ 序號 '+esc(s.sku):''} ・ ${esc(s.by||'')}</span></div>`).join(''):'<div class="muted" style="padding:12px 0">這個月份沒有銷售紀錄</div>';
+const payTotal=method=>r.filter(s=>s.paymentMethod===method).reduce((a,s)=>a+Number(s.price||0)*Number(s.qty||1),0);
+$('payCash').textContent=money(payTotal('現金'));
+$('payTransfer').textContent=money(payTotal('轉帳'));
+$('payShopee').textContent=money(payTotal('蝦皮'));
+$('payCod').textContent=money(payTotal('貨到付款'));
+$('salesList').innerHTML=r.length?r.slice().reverse().map(s=>`<div class="log"><b>${esc(s.brand)} ${esc(s.name)}</b>　${esc(s.color)} ${esc(s.size)} × ${Number(s.qty||1)}<br>營業額 ${money(Number(s.price||0)*Number(s.qty||1))} ・ 成本 ${money(Number(s.cost||0)*Number(s.qty||1))} ・ 毛利 ${money((Number(s.price||0)-Number(s.cost||0))*Number(s.qty||1))}<br><span class="muted">${esc(s.date)}${s.sku?' ・ 序號 '+esc(s.sku):''} ・ 付款：${esc(s.paymentMethod||'舊紀錄未填')} ・ ${esc(s.by||'')}</span></div>`).join(''):'<div class="muted" style="padding:12px 0">這個月份沒有銷售紀錄</div>';
 
 let l=stockLogs.filter(s=>String(s.date||'').slice(0,7)===ym),lu=l.reduce((a,s)=>a+Number(s.qty||0),0),lc=l.reduce((a,s)=>a+Number(s.cost||0)*Number(s.qty||0),0);
 $('stockUnits').textContent=lu+' 件';$('stockCost').textContent=money(lc);$('stockCount').textContent=l.length+' 筆';$('stockAvg').textContent=money(lu?Math.round(lc/lu):0);
