@@ -192,10 +192,11 @@ h1{font-size:24px;margin:0 0 5px}.sub{font-size:13px;color:#bbb}
 <div class="field"><label>品牌</label><select id="brand" class="select"><option value="">請選擇品牌</option><option value="AAPE">AAPE</option><option value="迪桑特">迪桑特</option><option value="ON">ON</option><option value="BAPE">BAPE</option></select></div>
 <div class="field full"><label>商品名稱</label><input id="productName" class="input"></div>
 <div class="field full">
-<label>商品圖片網址（GitHub 圖片網址）</label>
-<input id="imageUrl" class="input" placeholder="貼上圖片網址">
+<label>商品圖片</label>
+<input id="imageFile" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" class="input">
+<input id="imageUrl" type="hidden">
+<div id="imageUploadStatus" class="muted" style="margin-top:7px">可直接從手機相簿選照片，會自動上傳。</div>
 <img id="imagePreview" class="imagePreview" alt="商品圖片預覽">
-<div class="muted" style="margin-top:5px">圖片設定一次後，客人官網會自動顯示。</div>
 </div>
 <div class="field full"><label>商品類型</label><select id="productType" class="select"><option value="clothes">衣服</option><option value="shoes">鞋子</option></select></div>
 <div class="field full"><label>尺寸（可複選）</label><div id="sizePick" class="pick"></div></div>
@@ -575,13 +576,46 @@ $('salesTab').onclick=()=>{$('salesTab').classList.add('on');$('stockTab').class
 $('stockTab').onclick=()=>{$('stockTab').classList.add('on');$('salesTab').classList.remove('on');$('stockStats').classList.remove('hidden');$('salesStats').classList.add('hidden')};
 
 
+const CLOUDINARY_CLOUD_NAME='xsfe2gb5';
+const CLOUDINARY_UPLOAD_PRESET='yuanshi_products';
+
 function updateImagePreview(){
 let url=$('imageUrl')?.value.trim();
 if(!url){$('imagePreview').style.display='none';$('imagePreview').removeAttribute('src');return}
 $('imagePreview').src=url;
 $('imagePreview').style.display='block';
 }
-$('imageUrl').oninput=updateImagePreview;
+
+async function uploadProductImage(file){
+if(!file)return;
+const status=$('imageUploadStatus');
+const input=$('imageFile');
+try{
+status.textContent='⏳ 圖片上傳中，請稍候…';
+input.disabled=true;
+const fd=new FormData();
+fd.append('file',file);
+fd.append('upload_preset',CLOUDINARY_UPLOAD_PRESET);
+const res=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,{
+method:'POST',body:fd
+});
+const data=await res.json();
+if(!res.ok||!data.secure_url)throw new Error(data?.error?.message||'上傳失敗');
+$('imageUrl').value=data.secure_url;
+updateImagePreview();
+status.textContent='✅ 圖片上傳完成';
+}catch(e){
+console.error(e);
+status.textContent='❌ 圖片上傳失敗：'+(e.message||'請再試一次');
+alert('圖片上傳失敗：'+(e.message||'請再試一次'));
+}finally{
+input.disabled=false;
+}
+}
+$('imageFile').onchange=e=>{
+const file=e.target.files?.[0];
+if(file)uploadProductImage(file);
+};
 
 function renderShop(){
 if(!$('shopGrid'))return;
@@ -607,7 +641,7 @@ $('shopSearch').oninput=renderShop;
 
 function openModal(id=null){
 editingId=id;let p=id?products.find(x=>x.id===id):null;
-$('modalTitle').textContent=p?'編輯商品':'新增商品';$('sku').value=p?.sku||'';$('brand').value=p?.brand||'';$('productName').value=p?.name||'';$('imageUrl').value=p?.imageUrl||'';updateImagePreview();$('productType').value=p?.productType||'clothes';
+$('modalTitle').textContent=p?'編輯商品':'新增商品';$('sku').value=p?.sku||'';$('brand').value=p?.brand||'';$('productName').value=p?.name||'';$('imageUrl').value=p?.imageUrl||'';$('imageFile').value='';$('imageUploadStatus').textContent=p?.imageUrl?'目前已有商品圖片，可重新選照片更換。':'可直接從手機相簿選照片，會自動上傳。';updateImagePreview();$('productType').value=p?.productType||'clothes';
 selectedColors=[...(p?.colors||[])];selectedSizes=[...new Set(Object.keys(p?.variantStock||{}).map(k=>k.split('||')[1]))];variantStock={...(p?.variantStock||{})};
 $('cost').value=p?.cost??'';$('price').value=p?.price??'';$('deleteBtn').classList.toggle('hidden',!p);renderPicks();$('modal').classList.add('show');
 }
