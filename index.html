@@ -60,8 +60,8 @@ h1{font-size:24px;margin:0 0 5px}.sub{font-size:13px;color:#bbb}
 </style>
 </head>
 <body>
-<header><div style="max-width:850px;margin:auto"><h1>猿始服飾｜庫存管理</h1><div class="sub">Firebase 雲端同步版</div><div id="userBar" class="bar hidden"><div id="userEmail" class="user"></div><button class="btn light" id="logoutBtn">登出</button></div></div></header>
-<main class="wrap">
+<header><div style="max-width:850px;margin:auto"><h1 id="siteTitle">猿始服飾</h1><div class="sub" id="siteSubtitle">現貨商品・線上型錄</div><div id="userBar" class="bar hidden"><div id="userEmail" class="user"></div><button class="btn light" id="logoutBtn">登出</button></div></div></header>
+<main class="wrap"><div id="publicActions" style="display:flex;justify-content:flex-end;margin-bottom:12px"><a class="btn light" href="?admin=1" style="text-decoration:none">老闆登入</a></div><div id="publicError" class="status hidden"></div>
 <section id="authView" class="authwrap"><div class="authbox"><h2>老闆登入</h2><input id="email" class="input" type="email" placeholder="Email"><input id="password" class="input" type="password" placeholder="密碼（至少 6 碼）"><div class="authactions"><button class="btn dark" id="loginBtn">登入</button><button class="btn light" id="registerBtn">註冊</button></div><div id="authStatus" class="status">登入後即可讀取共用庫存。</div></div></section>
 <section id="appView" class="hidden">
 <div class="mainnav" style="grid-template-columns:1fr 1fr 1fr"><button id="manageViewBtn" class="on">商品管理</button><button id="inventoryViewBtn">📦 庫存總表</button><button id="shopViewBtn">🛍️ 客人官網</button></div>
@@ -111,6 +111,7 @@ const $=id=>document.getElementById(id),money=n=>'$'+Number(n||0).toLocaleString
 const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
 const msg=e=>(e?.code||'').replace('auth/','')||e?.message||String(e);
 let products=[],sales=[],stockLogs=[],editingId=null,selectedSizes=[],selectedColors=[],variantData={};
+const adminMode=new URLSearchParams(location.search).has("admin");
 let unsubP=null,unsubS=null,unsubL=null,quickProduct=null,quickAct=null,quickKey=null,quickPayment='',editingSale=null;
 const sizes={clothes:['XS','S','M','L','XL','2XL'],shoes:['23','23.5','24','24.5','25','25.5','26','26.5','27','27.5','28','28.5','29']};
 const baseColors=['黑','白','灰','藍','紅','綠','米','卡其'];
@@ -121,7 +122,29 @@ const allKeys=p=>[...new Set([...Object.keys(p.variantData||{}),...Object.keys(p
 $('loginBtn').onclick=async()=>{try{await signInWithEmailAndPassword(auth,$('email').value.trim(),$('password').value);$('authStatus').textContent='登入成功'}catch(e){$('authStatus').textContent='登入失敗：'+msg(e)}};
 $('registerBtn').onclick=async()=>{if(!confirm('確定要用這組 Email 註冊新老闆帳號？'))return;try{await createUserWithEmailAndPassword(auth,$('email').value.trim(),$('password').value);$('authStatus').textContent='註冊成功'}catch(e){$('authStatus').textContent='註冊失敗：'+msg(e)}};
 $('logoutBtn').onclick=()=>signOut(auth);
-onAuthStateChanged(auth,user=>{if(unsubP)unsubP();if(unsubS)unsubS();if(unsubL)unsubL();if(user){$('authView').classList.add('hidden');$('appView').classList.remove('hidden');$('fab').classList.remove('hidden');$('userBar').classList.remove('hidden');$('userEmail').textContent=user.email;unsubP=onSnapshot(collection(db,'products'),s=>{products=s.docs.map(d=>({id:d.id,...d.data()}));render()});unsubS=onSnapshot(query(collection(db,'sales'),orderBy('createdAt','asc')),s=>{sales=s.docs.map(d=>({id:d.id,...d.data()}));renderStats()});unsubL=onSnapshot(query(collection(db,'stockLogs'),orderBy('createdAt','asc')),s=>{stockLogs=s.docs.map(d=>({id:d.id,...d.data()}));renderStats()})}else{$('authView').classList.remove('hidden');$('appView').classList.add('hidden');$('fab').classList.add('hidden');$('userBar').classList.add('hidden');products=[];sales=[];stockLogs=[]}});
+onAuthStateChanged(auth,user=>{
+  if(unsubP)unsubP();if(unsubS)unsubS();if(unsubL)unsubL();
+  unsubP=unsubS=unsubL=null;
+  const isAdmin=adminMode&&!!user;
+  $('publicActions').classList.toggle('hidden',adminMode);
+  $('authView').classList.toggle('hidden',!adminMode||isAdmin);
+  $('appView').classList.toggle('hidden',adminMode&&!isAdmin);
+  $('userBar').classList.toggle('hidden',!isAdmin);
+  $('siteTitle').textContent=isAdmin?'猿始服飾｜庫存管理':'猿始服飾';
+  $('siteSubtitle').textContent=isAdmin?'Firebase 雲端同步版':'現貨商品・線上型錄';
+  if(isAdmin)$('userEmail').textContent=user.email;
+  if(adminMode&&!isAdmin){products=[];return;}
+  if(!isAdmin){$('appView').classList.remove('hidden');$('appView').querySelector('.mainnav').classList.add('hidden');switchMainView('shop');}
+  else{$('appView').querySelector('.mainnav').classList.remove('hidden');switchMainView('manage');}
+  unsubP=onSnapshot(collection(db,'products'),snapshot=>{
+    products=snapshot.docs.map(d=>({id:d.id,...d.data()}));
+    if(isAdmin)render();else renderShop();
+  },err=>{if(!isAdmin){$('publicError').classList.remove('hidden');$('publicError').textContent='商品暫時無法顯示：資料庫尚未開放公開讀取商品。請由管理員設定安全的公開商品資料讀取規則。';$('shopGrid').innerHTML='<div class="empty">商品暫時無法載入</div>';}});
+  if(isAdmin){
+    unsubS=onSnapshot(query(collection(db,'sales'),orderBy('createdAt','asc')),snap=>{sales=snap.docs.map(d=>({id:d.id,...d.data()}));renderStats()});
+    unsubL=onSnapshot(query(collection(db,'stockLogs'),orderBy('createdAt','asc')),snap=>{stockLogs=snap.docs.map(d=>({id:d.id,...d.data()}));renderStats()});
+  }
+});
 
 function render(){
 let q=$('search').value.trim().toLowerCase(),bf=$('brandFilter').value,cf=$('categoryFilter').value;
@@ -143,7 +166,7 @@ rows.sort((a,b)=>String(a.p.brand||'').localeCompare(String(b.p.brand||''),'zh-H
 $('inventoryBody').innerHTML=rows.length?rows.map(({p,c,s,v})=>`<tr><td><div class="invProduct">${esc(p.brand||'')} ${esc(p.name||'')}</div></td><td>${esc(p.category||'-')}</td><td>${esc(p.sku||'-')}</td><td>${esc(c)}</td><td>${esc(s)}</td><td class="num ${v.qty<=1?'low':''}">${v.qty}</td><td class="num">${money(v.cost)}</td><td class="num">${money(v.price)}</td></tr>`).join(''):`<tr><td colspan="8" style="text-align:center;padding:35px;color:#888">沒有符合的庫存資料</td></tr>`;
 }
 
-function switchMainView(view){let inventory=view==='inventory',shop=view==='shop';$('manageView').classList.toggle('hidden',inventory||shop);$('inventoryView').classList.toggle('hidden',!inventory);$('shopView').classList.toggle('hidden',!shop);$('manageViewBtn').classList.toggle('on',!inventory&&!shop);$('inventoryViewBtn').classList.toggle('on',inventory);$('shopViewBtn').classList.toggle('on',shop);$('fab').classList.toggle('hidden',inventory||shop);if(inventory)renderInventory();if(shop)renderShop()}
+function switchMainView(view){let inventory=view==='inventory',shop=view==='shop';$('manageView').classList.toggle('hidden',inventory||shop);$('inventoryView').classList.toggle('hidden',!inventory);$('shopView').classList.toggle('hidden',!shop);$('manageViewBtn').classList.toggle('on',!inventory&&!shop);$('inventoryViewBtn').classList.toggle('on',inventory);$('shopViewBtn').classList.toggle('on',shop);$('fab').classList.toggle('hidden',inventory||shop);if(!adminMode){$("fab").classList.add("hidden")}if(inventory)renderInventory();if(shop)renderShop()}
 $('manageViewBtn').onclick=()=>switchMainView('manage');$('inventoryViewBtn').onclick=()=>switchMainView('inventory');$('shopViewBtn').onclick=()=>switchMainView('shop');
 $('invSearch').oninput=renderInventory;$('invBrandFilter').onchange=renderInventory;$('invCategoryFilter').onchange=renderInventory;$('invStockFilter').onchange=renderInventory;
 
@@ -189,7 +212,7 @@ function updateImagePreview(){const url=$('imageUrl').value.trim();$('imagePrevi
 async function uploadProductImage(file){if(!file||imageProcessing)return;const status=$('imageUploadStatus');imageProcessing=true;$('imageFile').disabled=true;$('saveBtn').disabled=true;$('cancelBtn').disabled=true;let objectUrl;try{status.textContent='正在處理照片，請稍候…';objectUrl=URL.createObjectURL(file);const img=new Image();await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('無法讀取這張照片，請改選 JPG、PNG 或照片截圖。'));img.src=objectUrl});const canvas=document.createElement('canvas'),scale=Math.min(1,1200/Math.max(img.naturalWidth,img.naturalHeight));canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(img,0,0,canvas.width,canvas.height);let result;for(const quality of [0.85,0.7,0.55,0.4,0.25]){result=canvas.toDataURL('image/jpeg',quality);if(result.length<=280000)break}if(result.length>280000)throw new Error('照片內容太大，請裁切後再選。');$('imageUrl').value=result;updateImagePreview();status.textContent='照片已準備好，請按「儲存」完成更新。'}catch(e){status.textContent='圖片處理失敗：'+e.message}finally{if(objectUrl)URL.revokeObjectURL(objectUrl);imageProcessing=false;$('imageFile').disabled=false;$('saveBtn').disabled=false;$('cancelBtn').disabled=false;$('imageFile').value=''}}
 $('imageFile').onchange=e=>uploadProductImage(e.target.files?.[0]);
 
-function renderShop(){let q=$('shopSearch').value.trim().toLowerCase(),rows=products.filter(p=>!q||[p.brand,p.name,p.sku,p.category,...allKeys(p)].join(' ').toLowerCase().includes(q));$('shopGrid').innerHTML=rows.length?rows.map(p=>{let specs=allKeys(p).map(k=>[k,getVD(p,k)]).filter(([,v])=>v.qty>0),prices=[...new Set(specs.map(([,v])=>v.price))].sort((a,b)=>a-b),priceText=prices.length?(prices.length===1?money(prices[0]):money(prices[0])+' 起'):'售完';return `<article class="shopCard" data-shopid="${esc(p.id)}">${p.imageUrl?`<img class="shopImg" src="${esc(p.imageUrl)}" alt="${esc(p.name)}">`:`<div class="shopNoImg">尚未設定圖片</div>`}<div class="shopBody"><div class="shopBrand">${esc(p.brand||'')}${p.category?' ・ '+esc(p.category):''}</div><div class="shopName">${esc(p.name||'')}</div><div class="shopPrice">${priceText}</div><div class="shopSpecs"><span class="shopSpec">${specs.length?'有現貨':'已售完'}</span></div></div><button class="shopImageEdit" data-imageid="${esc(p.id)}">📷 編輯圖片</button></article>`}).join(''):'<div class="empty" style="grid-column:1/-1">找不到商品</div>';document.querySelectorAll('[data-shopid]').forEach(el=>el.onclick=e=>{if(e.target.closest('[data-imageid]'))return;openShopDetail(el.dataset.shopid)});document.querySelectorAll('[data-imageid]').forEach(el=>el.onclick=e=>{e.stopPropagation();directImageId=el.dataset.imageid;$('directImageFile').click()})}
+function renderShop(){let q=$('shopSearch').value.trim().toLowerCase(),rows=products.filter(p=>!q||[p.brand,p.name,p.sku,p.category,...allKeys(p)].join(' ').toLowerCase().includes(q));$('shopGrid').innerHTML=rows.length?rows.map(p=>{let specs=allKeys(p).map(k=>[k,getVD(p,k)]).filter(([,v])=>v.qty>0),prices=[...new Set(specs.map(([,v])=>v.price))].sort((a,b)=>a-b),priceText=prices.length?(prices.length===1?money(prices[0]):money(prices[0])+' 起'):'售完';return `<article class="shopCard" data-shopid="${esc(p.id)}">${p.imageUrl?`<img class="shopImg" src="${esc(p.imageUrl)}" alt="${esc(p.name)}">`:`<div class="shopNoImg">尚未設定圖片</div>`}<div class="shopBody"><div class="shopBrand">${esc(p.brand||'')}${p.category?' ・ '+esc(p.category):''}</div><div class="shopName">${esc(p.name||'')}</div><div class="shopPrice">${priceText}</div><div class="shopSpecs"><span class="shopSpec">${specs.length?'有現貨':'已售完'}</span></div></div>${adminMode&&auth.currentUser?`<button class="shopImageEdit" data-imageid="${esc(p.id)}">📷 編輯圖片</button>`:""}</article>`}).join(''):'<div class="empty" style="grid-column:1/-1">找不到商品</div>';document.querySelectorAll('[data-shopid]').forEach(el=>el.onclick=e=>{if(e.target.closest('[data-imageid]'))return;openShopDetail(el.dataset.shopid)});document.querySelectorAll('[data-imageid]').forEach(el=>el.onclick=e=>{e.stopPropagation();directImageId=el.dataset.imageid;$('directImageFile').click()})}
 let directImageId=null;
 $('directImageFile').onchange=async e=>{let file=e.target.files?.[0],id=directImageId;if(!file||!id)return;try{let url=await imageToDataUrl(file);await setDoc(doc(db,'products',id),{imageUrl:url,updatedAt:serverTimestamp(),updatedBy:auth.currentUser?.email||''},{merge:true});alert('圖片已更新，官網同步完成')}catch(err){alert('圖片更新失敗：'+err.message)}finally{e.target.value='';directImageId=null}};
 async function imageToDataUrl(file){const blob=URL.createObjectURL(file);try{const img=new Image();await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(Error('照片無法讀取，請使用 JPG 或 PNG'));img.src=blob});const canvas=document.createElement('canvas'),scale=Math.min(1,1000/Math.max(img.naturalWidth,img.naturalHeight));canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(img,0,0,canvas.width,canvas.height);for(const quality of [.8,.65,.5,.35,.2]){let data=canvas.toDataURL('image/jpeg',quality);if(data.length<280000)return data}throw Error('圖片太大，請裁切後重試')}finally{URL.revokeObjectURL(blob)}}
